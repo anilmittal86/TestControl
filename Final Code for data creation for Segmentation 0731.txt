@@ -1,3 +1,6 @@
+--anil
+
+
 DECLARE @snapshot date = '2016-12-31'
 DECLARE @mnth_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-1))
 DECLARE @mnthlast_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-2)) 

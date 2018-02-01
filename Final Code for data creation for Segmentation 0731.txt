@@ -1,0 +1,795 @@
+DECLARE @snapshot date = '2016-12-31'
+DECLARE @mnth_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-1))
+DECLARE @mnthlast_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-2)) 
+DECLARE @mnthlast_end date = EOMONTH(@mnthlast_start)
+DECLARE	@mnthsecondlast_start date = dateadd(mm,-1, @mnthlast_start)
+DECLARE	@mnthsecondlast_end date = EOMONTH(@mnthsecondlast_start)
+DECLARE	@mnththirdlast_start date = dateadd(mm,-1, @mnthsecondlast_start )
+DECLARE	@mnththirdlast_end date = EOMONTH(@mnththirdlast_start)
+DECLARE	@mnthnext_start date = @snapshot
+DECLARE	@mnthnext_end date = EOMONTH(@mnthnext_start)
+DECLARE	@mnthsecondnext_start date =  dateadd(mm,1,@snapshot)
+DECLARE	@mnthnsecondnext_end date = EOMONTH(@mnthsecondnext_start)
+DECLARE	@mnththirdnnext_start date =  dateadd(mm,2,@snapshot)
+DECLARE	@mnththirdnext_end date = EOMONTH(@mnththirdnnext_start)
+
+--Select a.customerNUmber,,[Salutation][BirthDate]* into SalesInfo from customersbase a (1090349 row(s) affected)
+drop table if exists CustomerInfo
+Select * into CustomerInfo from 
+(select a.customernumber,a.countrycode, a.zipcode, a.age, a.[Sponsor],a.[CustomerGroupKey],a.[QualiLevel],a.[IsFirm],a.createddate,
+case when b.gender = 'Unknown' then NULL else b.gender end as gender, ActiveDays,LastActivityDate,FirstActivityDate 
+from
+(
+select customernumber,
+ Countrycode, 
+ Zipcode,
+ case when datediff(yy,BirthDate,@snapshot) < 0 then NULL else datediff(yy,BirthDate,@snapshot) end as age,
+ salutation,
+ a.[Sponsor],a.[CustomerGroupKey],a.[QualiLevel],a.[IsFirm], createddate
+from [dbo].[CustomersBase] a
+) a
+left join 
+(select salutation,gender from [dbo].[Saluation_Mapping_Updated]) b
+on a.salutation = b.salutation
+left join (-- DECLARE @snapshot date = '2016-12-31'
+  Select customernumber, datediff(dd,FirstActivityDate,LastActivityDate) as 'ActiveDays',LastActivityDate,FirstActivityDate from (
+Select Customernumber, (Select min(m) from ( VALUES (first_network_addition_date),(FirstOrderDate),(FirstCommssiondate)) as T(m)) as 'FirstActivityDate',
+(Select max(n) from ( VALUES (last_addition_date),(LastOrderDate),(LastCommssiondate)) as T(n)) as 'LastActivityDate'
+--max(last_addition_date,LastOrderDate,LastCommssiondate) as 'b' 
+from (Select a.Customernumber,(first_network_addition_date),(FirstOrderDate),(FirstCommssiondate),last_addition_date,LastOrderDate,LastCommssiondate
+ from customersbase a
+left join (SELECT sponsor, 
+min(cast(startdate as date)) as 'first_network_addition_date'
+FROM [dbo].[CustomerNetworkHistory20120101to20161231v2] a 
+left join (Select customernumber, createddate from customersbase) b
+on a.customernumber = b.customernumber
+where startdate <= @snapshot 
+group by sponsor ) c
+on a.customernumber = c.sponsor
+
+left join (Select sponsor, max(first_network_date) as 'last_addition_date'from (
+SELECT sponsor, customernumber,
+min(startdate)  as 'first_network_date'
+FROM [dbo].[CustomerNetworkHistory20120101to20161231v2] a
+where startdate <= @snapshot 
+group by sponsor,customernumber) a
+group by sponsor ) d
+on a.customernumber = d.sponsor
+
+left join ( Select CustomerNumber,min(orderdate) as 'FirstOrderDate',max(orderdate) as 'LastOrderDate'
+   from SalesOrders 
+	where DocumentType = 'O' and DocumentState <> 'S' and OrderDate <= @snapshot
+	group by CustomerNumber) e
+	on a.customernumber = e.customernumber
+
+left join ( Select CustomerNumber,min(calculationDate) as 'FirstCommssiondate',max(calculationDate) as 'LastCommssiondate'
+  FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate <= @snapshot
+  group by CustomerNumber) f
+  on a.customernumber = f.customernumber
+) a
+ )b
+ ) c
+ on a.customernumber = c.customernumber)a
+-------------------Sales Info----------------------
+
+--DECLARE @snapshot date = '2016-12-31'
+--DECLARE @mnth_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-1))
+--DECLARE @mnthlast_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-2)) 
+--DECLARE @mnthlast_end date = EOMONTH(@mnthlast_start)
+--DECLARE	@mnthsecondlast_start date = dateadd(mm,-1, @mnthlast_start)
+--DECLARE	@mnthsecondlast_end date = EOMONTH(@mnthsecondlast_start)
+--DECLARE	@mnththirdlast_start date = dateadd(mm,-1, @mnthsecondlast_start )
+--DECLARE	@mnththirdlast_end date = EOMONTH(@mnththirdlast_start)
+--DECLARE	@mnthnext_start date = @snapshot
+--DECLARE	@mnthnext_end date = EOMONTH(@mnthnext_start)
+--DECLARE	@mnthsecondnext_start date =  dateadd(mm,1,@snapshot)
+--DECLARE	@mnthnsecondnext_end date = EOMONTH(@mnthsecondnext_start)
+--DECLARE	@mnththirdnnext_start date =  dateadd(mm,2,@snapshot)
+--DECLARE	@mnththirdnext_end date = EOMONTH(@mnththirdnnext_start)
+
+drop table if exists SalesInfo
+
+select  
+a.customerNumber,
+a1.LastMonthSales,
+a1.LastMonthOrders,
+b.SecondLastMonthSales,
+b.SecondLastMonthOrders,
+c.ThirdLastMonthSales,
+c.ThirdLastMonthOrders,
+d.LastThreeMonthSales,
+d.LastThreeMonthOrders,
+e.LifeTimeSales,
+e.LifeTimeOrders,
+f.avg_time_between_orders,
+g.DaysSinceLastOrder,
+h.FirstOrderDate,
+i.LastTransactionValue,
+j.PaymentTerms,
+k.PayMode,
+l.ShippingMode,
+m.percHighPriortyShipments,
+n.avgdiscountRate,
+p.DaysTakenForSecondOrder,
+q.FirstThreeMonthSales,
+q.FirstThreeMonthOrders,
+r.FirstSixMonthSales,
+r.FirstSixMonthOrders,
+s.FirstYearSales,
+s.FirstYearOrders,
+t.LastSixMonthSales,
+t.LastSixMonthOrders,
+u.LastYearSales,
+u.LastYearOrders,
+LastThreeMonthCancelledOrders,
+FirstThreeMonthCancelledOrders,
+FirstThreeMonthReturnedOrders
+
+into salesinfo
+from CustomerInfo a 
+left join
+(Select CustomerNumber,SUM(TotalPointsGV) as 'LastMonthSales',Count(TotalPointsGV) as 'LastMonthOrders'
+ FROM SalesOrders
+ where DocumentType = 'O' and DocumentState <> 'S' and (Orderdate)  between @mnth_start and @snapshot
+   group by CustomerNumber) a1
+   on a.customernumber = a1.customernumber
+  
+left join
+
+ (Select CustomerNumber,SUM(TotalPointsGV) as 'SecondLastMonthSales',COUNT(TotalPointsGV) as 'SecondLastMonthOrders' 
+ FROM SalesOrders
+ where DocumentType = 'O' and DocumentState <> 'S' and (Orderdate) between @mnthsecondlast_start and @mnthsecondlast_end
+   group by CustomerNumber) b
+   on a.customerNumber = b.customerNumber  
+
+left join
+   
+    (Select CustomerNumber,SUM(TotalPointsGV) as 'ThirdLastMonthSales',COUNT(TotalPointsGV) as 'ThirdLastMonthOrders' 
+ FROM SalesOrders
+ where DocumentType = 'O' and DocumentState <> 'S' and Orderdate  between @mnththirdlast_start and @mnththirdlast_end
+   group by CustomerNumber) c
+   on a.customerNumber = c.customerNumber  
+   
+left join
+	  
+	   (Select CustomerNumber,SUM(TotalPointsGV) as 'LastThreeMonthSales',COUNT(TotalPointsGV) as 'LastThreeMonthOrders'
+ FROM SalesOrders
+ where DocumentType = 'O' and DocumentState <> 'S' and Orderdate  between @mnththirdlast_start and @snapshot
+   group by CustomerNumber) d
+   on a.customerNumber = d.customerNumber
+
+   left join 
+   
+   (Select CustomerNumber,SUM(TotalPointsGV) as 'LifeTimeSales',COUNT(TotalPointsGV) as 'LifeTimeOrders'
+ FROM SalesOrders
+ where DocumentType = 'O' and DocumentState <> 'S' and Orderdate  <= @snapshot
+   group by CustomerNumber) e
+   on a.customerNumber = e.customerNumber
+   
+
+   left join 
+   (
+   Select  CustomerNumber, avg(orderdays)  as avg_time_between_orders  from (
+   select CustomerNumber , DATEDIFF(day,orderdate,next_orderdate) as 'orderdays'
+from ( select CustomerNumber, OrderDate , OrderNumber , lag(OrderDate) OVER (partition by CustomerNumber ORDER BY Orderdate DESC) as next_orderdate
+    from  SalesOrders 
+	where DocumentType = 'O' and DocumentState <> 'S' and OrderDate < @snapshot) a)a
+	where orderdays is not null
+	group by CustomerNumber) f
+	on a.customerNumber = f.customerNUmber
+
+	left join
+	
+	 ( Select CustomerNumber, DATEDIFF(day,orderdate,@snapshot) as 'DaysSinceLastOrder' from 
+	(Select CustomerNumber,OrderNumber,Orderdate,RANK() OVER   
+    (PARTITION BY CustomerNumber ORDER BY OrderDate DESC,OrderNumber DESC) AS Rank   from SalesOrders 
+	where DocumentType = 'O' and DocumentState <> 'S' and OrderDate <= @snapshot) a where rank = 1 ) g
+	on a.CustomerNumber = g.CustomerNumber
+
+	left join 
+	
+	(  Select CustomerNumber, orderdate as 'FirstOrderDate' from (Select CustomerNumber,OrderNumber,Orderdate,RANK() OVER   
+    (PARTITION BY CustomerNumber ORDER BY OrderDate,OrderNumber asc) AS Rank   from SalesOrders 
+	where DocumentType = 'O' and OrderDate <= @snapshot) a where rank = 1 ) h
+	on a.CustomerNumber = h.CustomerNumber
+		
+	left join
+	
+	 ( Select CustomerNumber, TotalPointsGV as 'LastTransactionValue' from (Select CustomerNumber,TotalPointsGV,Orderdate,RANK() OVER   
+    (PARTITION BY CustomerNumber ORDER BY OrderDate DESC,OrderNumber DESC) AS Rank   from SalesOrders 
+	where DocumentType = 'O' and DocumentState <> 'S' and OrderDate <= @snapshot) a where rank = 1 ) i
+	on a.CustomerNumber = i.CustomerNumber
+
+	left join ( Select customerNUmber,PaymentTerms from ( 
+Select customerNUmber,PaymentTerms,numofpaymentterms,row_number() OVER   
+    (PARTITION BY CustomerNumber ORDER BY numofpaymentterms DESC) AS row
+	 from ( Select customerNUmber,PaymentTerms,count(*) as 'numofpaymentterms' from salesorders 
+	 where OrderDate <= @snapshot
+	 and documentType = 'O' 
+	 group by customerNumber,PaymentTerms) b
+	  ) a
+	where row = 1	) j
+	on a.customerNumber = j.customerNumber
+
+		left join ( Select customerNUmber,PayMode from ( 
+	Select customerNUmber,PayMode,numofpaymode,row_number() OVER   
+    (PARTITION BY CustomerNumber ORDER BY numofpaymode DESC) AS row
+	 from ( Select customerNUmber,PayMode,count(*) as 'numofpaymode' from salesorders 
+	 where OrderDate <= @snapshot
+	 and documentType = 'O' 
+	 group by customerNumber,PayMode) b
+	  ) a
+	where row = 1 ) k
+	on a.customerNumber = k.customerNumber
+	
+		left join ( Select customerNUmber,ShippingMode from ( 
+	Select customerNUmber,ShippingMode,numofShippingMode,row_number() OVER   
+    (PARTITION BY CustomerNumber ORDER BY numofShippingMode DESC) AS row
+	 from ( Select customerNUmber,ShippingMode,count(*) as 'numofShippingMode' from salesorders 
+	 where OrderDate <= @snapshot
+	 and documentType = 'O' 
+	 group by customerNumber,ShippingMode) b
+	 ) a
+	where row = 1 ) l
+	on a.customerNumber = l.customerNumber
+	
+		left join (	Select customerNUmber,cast(round((SUM(case when Priority = 3 then 1 else 0 end) * 1.0 /Count(*)),1.0) as numeric(36,2)) as 'percHighPriortyShipments' from salesorders 
+	 where OrderDate <= @snapshot
+	 and documentType = 'O' 
+	 group by customerNumber  ) m
+	on a.customerNumber = m.customerNumber
+
+
+	left join ( Select avg(discountrate + ExtraDiscountrate) as 'avgdiscountRate',customerNumber from salesorders 
+  where DocumentType = 'O' 
+  group by CustomerNumber) n
+  on a.customerNumber = n.customerNumber
+
+  
+	left join (	select CustomerNumber , DATEDIFF(day,orderdate,next_orderdate) as 'DaysTakenForSecondOrder'
+from ( select CustomerNumber, OrderDate , OrderNumber , lag(OrderDate) OVER (partition by CustomerNumber ORDER BY Orderdate DESC) as next_orderdate
+    , ROW_NUMBER() OVER (partition by CustomerNumber ORDER BY Orderdate) as 'ROW'
+	from  SalesOrders 
+	where DocumentType = 'O' and DocumentState <> 'S' and OrderDate <= @snapshot) a 
+	where ROW = 1) p
+	on a.customerNumber = p.customerNumber
+
+	left join (	Select a.CustomerNumber,SUM(TotalPointsGV) as 'FirstThreeMonthSales',COUNT(TotalPointsGV) as 'FirstThreeMonthOrders'
+ FROM SalesOrders a left join
+ (Select CustomerNumber, OrderDate as 'FirstOrderDate' from 
+   (select CustomerNumber, OrderDate , ROW_NUMBER() OVER (partition by CustomerNumber ORDER BY Orderdate) as 'ROW'
+	from  SalesOrders 
+	where DocumentType = 'O' and DocumentState <> 'S' and OrderDate <= @snapshot) a 
+	where ROW = 1) b
+	on a.customerNumber = b.customerNumber
+	 where DocumentType = 'O' and Orderdate  between FirstOrderDate and DATEADD(mm,3,FirstOrderDate) 
+   group by a.CustomerNumber) q
+   on a.CustomerNumber = q.CustomerNumber
+
+   left join (	Select a.CustomerNumber,SUM(TotalPointsGV) as 'FirstSixMonthSales',COUNT(TotalPointsGV) as 'FirstSixMonthOrders'
+ FROM SalesOrders a left join
+ (Select CustomerNumber, OrderDate as 'FirstOrderDate' from 
+   (select CustomerNumber, OrderDate , ROW_NUMBER() OVER (partition by CustomerNumber ORDER BY Orderdate) as 'ROW'
+	from  SalesOrders 
+	where DocumentType = 'O' and DocumentState <> 'S' and OrderDate <= @snapshot) a 
+	where ROW = 1) b
+	on a.customerNumber = b.customerNumber
+	 where DocumentType = 'O' and Orderdate  between FirstOrderDate and DATEADD(mm,6,FirstOrderDate) 
+   group by a.CustomerNumber) r
+   on a.CustomerNumber = r.CustomerNumber
+
+   left join (	Select a.CustomerNumber,SUM(TotalPointsGV) as 'FirstYearSales',COUNT(TotalPointsGV) as 'FirstYearOrders'
+ FROM SalesOrders a left join
+ (Select CustomerNumber, OrderDate as 'FirstOrderDate' from 
+   (select CustomerNumber, OrderDate , ROW_NUMBER() OVER (partition by CustomerNumber ORDER BY Orderdate) as 'ROW'
+	from  SalesOrders 
+	where DocumentType = 'O' and DocumentState <> 'S' and OrderDate <= @snapshot) a 
+	where ROW = 1) b
+	on a.customerNumber = b.customerNumber
+	 where DocumentType = 'O' and Orderdate  between FirstOrderDate and DATEADD(mm,12,FirstOrderDate) 
+   group by a.CustomerNumber) s
+   on a.CustomerNumber = s.CustomerNumber
+
+   left join
+	  
+	   (Select CustomerNumber,SUM(TotalPointsGV) as 'LastSixMonthSales',COUNT(TotalPointsGV) as 'LastSixMonthOrders'
+ FROM SalesOrders
+ where DocumentType = 'O' and DocumentState <> 'S' and Orderdate  between DATEADD(mm,-6,@snapshot) and @snapshot
+   group by CustomerNumber) t
+   on a.customerNumber = t.customerNumber
+
+   left join
+	  
+	   (Select CustomerNumber,SUM(TotalPointsGV) as 'LastYearSales',COUNT(TotalPointsGV) as 'LastYearOrders'
+ FROM SalesOrders
+ where DocumentType = 'O' and DocumentState <> 'S' and Orderdate  between DATEADD(mm,-12,@snapshot) and @snapshot
+   group by CustomerNumber) u
+   on a.customerNumber = u.customerNumber
+
+    left join
+   
+    (Select CustomerNumber,COUNT(TotalPointsGV) as 'LastThreeMonthCancelledOrders' 
+ FROM SalesOrders
+ where DocumentType = 'O' and DocumentState = 'S' and Orderdate  between @mnththirdlast_start and @snapshot
+   group by CustomerNumber) v
+   on a.customerNumber = v.customerNumber
+
+    left join
+   
+    (Select a.CustomerNumber,COUNT(TotalPointsGV) as 'FirstThreeMonthCancelledOrders'
+ FROM SalesOrders a left join
+ (Select CustomerNumber, OrderDate as 'FirstOrderDate' from 
+   (select CustomerNumber, OrderDate , ROW_NUMBER() OVER (partition by CustomerNumber ORDER BY Orderdate) as 'ROW'
+	from  SalesOrders 
+	where DocumentType = 'O' and DocumentState <> 'S' and OrderDate <= @snapshot) a 
+	where ROW = 1) b
+	on a.customerNumber = b.customerNumber
+	 where DocumentType = 'O' and Orderdate  between FirstOrderDate and DATEADD(mm,3,FirstOrderDate) and DocumentState = 'S'
+   group by a.CustomerNumber) w
+   on a.customerNumber = w.customerNumber
+
+     left join
+   
+    (Select a.CustomerNumber,COUNT(TotalPointsGV) as 'FirstThreeMonthReturnedOrders'
+ FROM SalesOrders a left join
+ (Select CustomerNumber, OrderDate as 'FirstOrderDate' from 
+   (select CustomerNumber, OrderDate , ROW_NUMBER() OVER (partition by CustomerNumber ORDER BY Orderdate) as 'ROW'
+	from  SalesOrders 
+	where DocumentType = 'R' and OrderDate <= @snapshot) a 
+	where ROW = 1) b
+	on a.customerNumber = b.customerNumber
+	 where DocumentType = 'R' and Orderdate  between FirstOrderDate and DATEADD(mm,3,FirstOrderDate) 
+   group by a.CustomerNumber) x
+   on a.customerNumber = x.customerNumber
+  -- ***************************************Quali level**************************
+ 
+--DECLARE @snapshot date = '2016-12-31'
+--DECLARE @mnth_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-1))
+--DECLARE @mnthlast_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-2)) 
+--DECLARE @mnthlast_end date = EOMONTH(@mnthlast_start)
+--DECLARE	@mnthsecondlast_start date = dateadd(mm,-1, @mnthlast_start)
+--DECLARE	@mnthsecondlast_end date = EOMONTH(@mnthsecondlast_start)
+--DECLARE	@mnththirdlast_start date = dateadd(mm,-1, @mnthsecondlast_start )
+--DECLARE	@mnththirdlast_end date = EOMONTH(@mnththirdlast_start)
+--DECLARE	@mnthnext_start date = @snapshot
+--DECLARE	@mnthnext_end date = EOMONTH(@mnthnext_start)
+--DECLARE	@mnthsecondnext_start date =  dateadd(mm,1,@snapshot)
+--DECLARE	@mnthnsecondnext_end date = EOMONTH(@mnthsecondnext_start)
+--DECLARE	@mnththirdnnext_start date =  dateadd(mm,2,@snapshot)
+--DECLARE	@mnththirdnext_end date = EOMONTH(@mnththirdnnext_start)
+
+drop table if exists qualilevelinfo
+
+Select a.CustomerNumber,
+  CurrentLevel,
+  HighestQualiLevel,
+  LowestQualiLevel,
+ (HighestQualiLevel - LowestQualiLevel) as 'DiffBetweenMaxMin',
+  NumberofTimesUpgraded,
+  NumberofTimesDowngraded,
+  LevelChange as 'NumOfTimesLevelChange',
+  CurrentSponsor,
+  startdate as 'LevelStartDate',
+  LastActiveLevel
+
+  into qualilevelinfo
+
+  from customerinfo a left join
+ 
+  (Select CustomerNumber,QualiLevel as 'CurrentLevel',sponsor as 'CurrentSponsor',startdate
+  from  [dbo].[CustomerNetworkHistory20120101to20161231v2] 
+  where (enddate is NULL or enddate >= @snapshot) and StartDate <= @snapshot
+  ) as a1
+  on a.customernumber = a1.customernumber
+ 
+  left join 
+  
+  (Select CustomerNumber, SUM(Case when counter > 0 then 1 else 0 end) as 'NumberofTimesUpgraded', 
+  SUM(Case when counter < 0 then 1 else 0 end) as 'NumberofTimesDowngraded' , SUM(Counter) as 'LevelChange' from
+  (Select CustomerNumber,sponsor,QualiLevel,startdate,next_level, case when (cast(next_level as int) - cast(Qualilevel as int)) > 0 then 1 else -1 end as 'Counter' from 
+	(	    Select *, lag(QualiLevel) 
+			OVER (partition by CustomerNumber ORDER BY CustomerNetworkHistoryID DESC) as next_level,
+			lag(startdate) 
+			OVER (partition by CustomerNumber ORDER BY CustomerNetworkHistoryID DESC) as next_startdate,
+			lag(sponsor) 
+			OVER (partition by CustomerNumber ORDER BY CustomerNetworkHistoryID DESC) as next_sponsor
+			from  [dbo].[CustomerNetworkHistory20120101to20161231v2])a
+ where QualiLevel <> next_level and StartDate <= @snapshot
+ and next_sponsor <> 1019070 and next_sponsor not between 9000 and 9999) a
+ group by customerNumber) as b
+ on a.customerNumber = b.customerNumber
+
+  left join ( Select CustomerNumber,max(QualiLevel) as 'HighestQualiLevel'
+ from [CustomerNetworkHistory20120101to20161231v2] where StartDate <= @snapshot
+ group by CustomerNumber) c
+ on a.customerNumber = c.customerNumber
+
+ left join (Select CustomerNumber,min(QualiLevel) as 'LowestQualiLevel'
+ from [CustomerNetworkHistory20120101to20161231v2] where StartDate <= @snapshot
+ group by CustomerNumber)d
+ on a.customerNumber = d.customerNumber
+ 
+
+  left join 
+  
+  (   Select CustomerNumber, case when next_sponsor is NULL OR (sponsor <> 1019070) OR sponsor not between 9000 and 9999 then QualiLevel else next_level end as 'LastActiveLevel' from
+  (Select CustomerNumber,sponsor,QualiLevel,startdate,next_level,next_sponsor from 
+	(	    Select *, lead(QualiLevel) 
+			OVER (partition by CustomerNumber ORDER BY CustomerNetworkHistoryID DESC) as next_level,
+			lead(startdate) 
+			OVER (partition by CustomerNumber ORDER BY CustomerNetworkHistoryID DESC) as next_startdate,
+			lead(sponsor) 
+			OVER (partition by CustomerNumber ORDER BY CustomerNetworkHistoryID DESC) as next_sponsor,
+			row_number()  
+			OVER (partition by CustomerNumber ORDER BY CustomerNetworkHistoryID DESC) as 'row'
+			from  [dbo].[CustomerNetworkHistory20120101to20161231v2] where StartDate <= @snapshot)a
+ where row = 1) a) as e
+ on a.customerNumber = e.customerNumber
+ 
+
+   --***************Commissions---------------------------------------------------
+ 
+--DECLARE @snapshot date = '2016-12-31'
+--DECLARE @mnth_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-1))
+--DECLARE @mnthlast_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-2)) 
+--DECLARE @mnthlast_end date = EOMONTH(@mnthlast_start)
+--DECLARE	@mnthsecondlast_start date = dateadd(mm,-1, @mnthlast_start)
+--DECLARE	@mnthsecondlast_end date = EOMONTH(@mnthsecondlast_start)
+--DECLARE	@mnththirdlast_start date = dateadd(mm,-1, @mnthsecondlast_start )
+--DECLARE	@mnththirdlast_end date = EOMONTH(@mnththirdlast_start)
+--DECLARE	@mnthnext_start date = @snapshot
+--DECLARE	@mnthnext_end date = EOMONTH(@mnthnext_start)
+--DECLARE	@mnthsecondnext_start date =  dateadd(mm,1,@snapshot)
+--DECLARE	@mnthnsecondnext_end date = EOMONTH(@mnthsecondnext_start)
+--DECLARE	@mnththirdnnext_start date =  dateadd(mm,2,@snapshot)
+--DECLARE	@mnththirdnext_end date = EOMONTH(@mnththirdnnext_start)
+
+drop table if exists CommissionsInfo
+ 
+Select a.customerNumber,
+a1.lastMonthPayOut,
+m.LastSixMonthPayOut,
+d.LastThreeMonthPayOut,
+e.lifetimepayout,
+f.DaysSinceLastCommission,
+((a1.lastMonthPayOut-c.ThirdlastMonthPayOut)/NULLIF(c.ThirdlastMonthPayOut,0)) as 'ThreeMonthCommissionpercGrowth',
+g.FirstCommissionDate,
+g.FirstCommissionPayout,
+h.FirstThreeMonthPayout,h.CountofFirstThreeMonthPayout,
+j.FirstSixMonthPayout,j.CountofFirstSixMonthPayout
+
+into commissionsinfo
+  from customerinfo a left join
+  
+  (Select CustomerNumber,SUM(PayoutEur) as 'lastMonthPayOut'
+  FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate between @mnth_start and @snapshot
+  group by CustomerNumber) as a1
+  on a.customernumber = a1.customernumber
+  left join 
+  
+  (Select CustomerNumber,SUM(PayoutEur) as 'SecondlastMonthPayOut'
+  FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate between @mnthsecondlast_start and @mnthsecondlast_end
+  group by CustomerNumber) as  b
+  on a.customerNumber = b.customerNumber
+
+  left join 
+
+(Select CustomerNumber,SUM(PayoutEur) as 'ThirdlastMonthPayOut'
+  FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate between @mnththirdlast_start and @mnththirdlast_end
+    group by CustomerNumber) as  c
+  on a.customerNumber = c.customerNumber
+
+
+   left join
+ 
+ (Select CustomerNumber,SUM(PayoutEur) as 'LastThreeMonthPayOut'
+  FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate between @mnthsecondlast_start and @snapshot
+   group by CustomerNumber) as  d
+  on a.customerNumber = d.customerNumber 
+
+   left join
+ 
+ (Select CustomerNumber,SUM(PayoutEur) as 'LastSixMonthPayOut'
+  FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate between dateadd(mm,-6,@snapshot) and @snapshot
+   group by CustomerNumber) as  m
+  on a.customerNumber = m.customerNumber 
+    
+left join
+ 
+ (Select CustomerNumber,SUM(PayoutEur) as 'LifeTimePayOut'
+  FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate <= @snapshot
+   group by CustomerNumber) as e
+  on a.customerNumber = e.customerNumber  
+  
+left join 
+
+( Select CustomerNumber, DATEDIFF(day,Calculationperiod,@snapshot) as 'DaysSinceLastCommission' from 
+	(Select CustomerNumber,Calculationperiod,RANK() OVER   
+    (PARTITION BY CustomerNumber ORDER BY Calculationperiod DESC, a.CCID DESC ) AS Rank  FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate <= @snapshot) a where rank = 1 )as  f
+	on a.CustomerNumber = f.CustomerNumber
+
+	left join 
+	( Select CustomerNumber, CalculationPeriod as 'FirstCommissionDate',PayoutEur as 'FirstCommissionPayout' from 
+   (select CustomerNumber,CalculationPeriod,PayoutEur, ROW_NUMBER() OVER (partition by CustomerNumber ORDER BY CalculationPeriod) as 'ROW'
+	FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate<= @snapshot) a 
+	where ROW = 1) g
+	on a.customerNumber = g.customerNUmber
+
+left join (	Select a.customerNUmber,sum(PayoutEur) as 'FirstThreeMonthPayout',count(PayoutEur) as 'CountofFirstThreeMonthPayout' from 
+	(Select a.CustomerNumber,PayoutEur from (Select CustomerNumber,PayoutEur,CalculationPeriod,calculationDate FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID) a
+	left join 
+	(Select CustomerNumber, calculationDate as 'FirstCommissionDate',PayoutEur as 'FirstCommissionPayout' from 
+   (select CustomerNumber,calculationDate,PayoutEur, ROW_NUMBER() OVER (partition by CustomerNumber ORDER BY CalculationPeriod) as 'ROW'
+	FROM [dbo].[BonusPayout] a
+left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate<= @snapshot) a 
+	where ROW = 1) b
+	on a.customerNumber = b.customerNumber
+	where calculationDate between FirstCommissionDate and dateadd(mm,3,FirstCommissionDate))a
+	group by a.customerNUmber) h
+	on a.customernumber = h.customernumber
+
+	left join (	Select a.customerNUmber,sum(PayoutEur) as 'FirstSixMonthPayout',count(PayoutEur) as 'CountofFirstSixMonthPayout' from 
+	(Select a.CustomerNumber,PayoutEur from (Select CustomerNumber,PayoutEur,CalculationPeriod,calculationDate FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID) a
+	left join 
+	(Select CustomerNumber, calculationDate as 'FirstCommissionDate',PayoutEur as 'FirstCommissionPayout' from 
+   (select CustomerNumber,calculationDate,PayoutEur, ROW_NUMBER() OVER (partition by CustomerNumber ORDER BY CalculationPeriod) as 'ROW'
+	FROM [dbo].[BonusPayout] a
+  left join [dbo].[Commissions] b
+  on a.CCID = b.CCID
+  where calculationDate<= @snapshot) a 
+	where ROW = 1) b
+	on a.customerNumber = b.customerNumber
+	where calculationDate between FirstCommissionDate and dateadd(mm,6,FirstCommissionDate))a
+	group by a.customerNUmber) j
+	on a.customernumber = j.customernumber
+
+	---------------subscriptions----------------------------
+	
+--DECLARE @snapshot date = '2016-12-31'
+--DECLARE @mnth_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-1))
+--DECLARE @mnthlast_start date = DATEADD(DAY,1,EOMONTH(@snapshot,-2)) 
+--DECLARE @mnthlast_end date = EOMONTH(@mnthlast_start)
+--DECLARE	@mnthsecondlast_start date = dateadd(mm,-1, @mnthlast_start)
+--DECLARE	@mnthsecondlast_end date = EOMONTH(@mnthsecondlast_start)
+--DECLARE	@mnththirdlast_start date = dateadd(mm,-1, @mnthsecondlast_start )
+--DECLARE	@mnththirdlast_end date = EOMONTH(@mnththirdlast_start)
+--DECLARE	@mnthnext_start date = @snapshot
+--DECLARE	@mnthnext_end date = EOMONTH(@mnthnext_start)
+--DECLARE	@mnthsecondnext_start date =  dateadd(mm,1,@snapshot)
+--DECLARE	@mnthnsecondnext_end date = EOMONTH(@mnthsecondnext_start)
+--DECLARE	@mnththirdnnext_start date =  dateadd(mm,2,@snapshot)
+--DECLARE	@mnththirdnext_end date = EOMONTH(@mnththirdnnext_start)
+
+drop table if exists subscriptioninfo
+
+SelecT a.customernumber,ActiveSubscriptions into subscriptioninfo from customerinfo a left join
+	(select customernumber,count(Subscrnumber) as 'ActiveSubscriptions' from subscriptions 
+where processStart <= @snapshot --and (processstop > @snapshot or processstop is null)
+group by customernumber ) a1
+on a.customerNumber = a1.customerNumber
+
+------------------------------------------------------------------------------------------
+
+--DECLARE @snapshot date = '2016-12-31'
+
+drop table if exists networkinfo
+
+
+Select a.customernumber,
+days_since_last_deletion,
+days_since_last_addition,
+days_since_first_deletion,
+days_since_first_addition,
+avg_days_between_network_addition,
+first_network_addition_date
+
+into networkinfo
+
+  from customerinfo a left join
+(SELECT sponsor, 
+datediff(dd,max(cast(enddate as date)),@snapshot) as days_since_last_deletion
+FROM [dbo].[CustomerNetworkHistory20120101to20161231v2]
+where startdate < @snapshot 
+and enddate  < @snapshot  
+group by sponsor
+) as a1
+
+on a.customernumber = a1.sponsor
+
+left Join
+(Select  sponsor, avg(startdays)  as avg_days_between_network_addition from(
+ Select sponsor,DATEDIFF(day,first_network_date,next_startdate) as 'startdays' from (
+Select sponsor, customernumber , first_network_date,
+lag(first_network_date) OVER (partition by sponsor ORDER BY first_network_date DESC) as next_startdate from (
+SELECT sponsor, customernumber,min(startdate)  as 'first_network_date'
+FROM [dbo].[CustomerNetworkHistory20120101to20161231v2] a
+where startdate <= @snapshot and sponsor <> 1019070 and sponsor not between 9000 and 9999
+group by sponsor,customernumber) a )b
+where next_startdate is not null ) c
+group by sponsor) as c
+on a.customernumber  = c.sponsor
+
+left join
+
+(Select  sponsor, avg(enddays)  as avg_days_between_network_deletion
+ from
+  (
+ select sponsor,DATEDIFF(day,enddate,next_enddate) as 'enddays'
+from 
+( select sponsor, enddate, customernumber , lag(endDate) OVER (partition by sponsor ORDER BY enddate DESC) as next_enddate
+  from  [dbo].[CustomerNetworkHistory20120101to20161231v2]
+	where cast(enddate as date) <= @snapshot
+) a
+where DATEDIFF(day,enddate,next_enddate)  is not null
+)a
+group by sponsor) as d
+on a.customernumber  = d.sponsor
+
+ left join
+(SELECT sponsor, 
+datediff(dd,min(createddate),min(cast(enddate as date))) as days_since_first_deletion,
+datediff(dd,min(createddate),min(cast(startdate as date))) as days_since_first_addition,
+min(cast(startdate as date)) as 'first_network_addition_date'
+FROM [dbo].[CustomerNetworkHistory20120101to20161231v2] a
+left join (Select customernumber, createddate from customersbase) b
+on a.customernumber = b.customernumber
+where startdate <= @snapshot 
+and enddate  < @snapshot  
+group by sponsor
+) as e
+
+on a.customernumber = e.sponsor
+
+left join
+(SELECT sponsor, 
+datediff(dd,max(cast(startdate as date)),@snapshot) as 'days_since_last_addition'
+FROM [dbo].[CustomerNetworkHistory20120101to20161231v2]
+where startdate <= @snapshot 
+group by sponsor
+) as f
+
+on a.customernumber = f.sponsor
+
+------------------------merge table--------------------
+drop table if exists customer_master
+
+Select a.customernumber,
+a.countrycode, a.zipcode, a.age, a.[Sponsor],a.[CustomerGroupKey],a.[QualiLevel],a.[IsFirm],gender,createddate,
+ActiveDays,LastActivityDate,FirstActivityDate,
+LastMonthSales,
+LastMonthOrders,
+SecondLastMonthSales,
+SecondLastMonthOrders,
+ThirdLastMonthSales,
+ThirdLastMonthOrders,
+LastThreeMonthSales,
+LastThreeMonthOrders,
+LifeTimeSales,
+LifeTimeOrders,
+avg_time_between_orders,
+DaysSinceLastOrder,
+FirstOrderDate,
+LastTransactionValue,
+PaymentTerms,
+PayMode,
+ShippingMode,
+percHighPriortyShipments,
+avgdiscountRate,
+DaysTakenForSecondOrder,
+FirstThreeMonthSales,
+FirstThreeMonthOrders,
+FirstSixMonthSales,
+FirstSixMonthOrders,
+FirstYearSales,
+FirstYearOrders,
+LastSixMonthSales,
+LastSixMonthOrders,
+LastYearSales,
+LastYearOrders,
+LastThreeMonthCancelledOrders,
+FirstThreeMonthCancelledOrders,
+FirstThreeMonthReturnedOrders,
+CurrentLevel,
+ HighestQualiLevel,
+ LowestQualiLevel,
+ DiffBetweenMaxMin,
+ NumberofTimesUpgraded,
+ NumberofTimesDowngraded,
+ NumOfTimesLevelChange,
+ CurrentSponsor,
+ LevelStartDate,
+ LastActiveLevel,
+ lastMonthPayOut,
+LastSixMonthPayOut,
+LastThreeMonthPayOut,
+lifetimepayout,
+DaysSinceLastCommission,
+ThreeMonthCommissionpercGrowth,
+FirstCommissionDate,
+FirstCommissionPayout,
+FirstThreeMonthPayout,
+CountofFirstThreeMonthPayout,
+FirstSixMonthPayout,
+CountofFirstSixMonthPayout,
+ActiveSubscriptions,
+days_since_last_deletion,
+days_since_last_addition,
+days_since_first_deletion,
+days_since_first_addition,
+avg_days_between_network_addition,
+first_network_addition_date,
+case when (sponsor = 1019070 or sponsor between 9000 and 9999) then DATEDIFF(dd,case when FirstOrderDate is null then CreatedDate else FirstOrderDate end,LevelStartDate)
+else DATEDIFF(dd,case when FirstOrderDate is null then CreatedDate else FirstOrderDate end,cast(@snapshot as Date))
+ end as 'Tenure'
+
+into customer_master
+
+ from [dbo].[CustomerInfo] a
+left join [dbo].[salesinfo] b
+on a.customerNumber = b.customerNumber 
+left join [dbo].[subscriptioninfo] c
+on a.customerNumber = c.customerNumber 
+left join [dbo].[commissionsinfo] d
+on a.customerNumber = d.customerNumber  
+left join [dbo].[qualilevelinfo] e
+on a.customerNumber = e.customerNumber 
+left join networkinfo f
+on a.customerNumber = f.customerNumber 
+
+
+
+
+--drop table if exists #temp
+--Select *
+--into #temp
+-- from customer_master
+--where isfirm = 0
+
+
+--drop table if exists #temp1
+--Select * into #temp1 from #temp
+--where customernumber not in (select customernumber from mandators)
+----1083865
+----Select count(*),countrycode from #temp1 --where countrycode = 'MX' and createddate >= '2013-08-01'
+
+
+--drop table if exists #temp2
+--Select * into #temp2 from #temp1 where createddate <= '2016-07-01' -- 1008127
+
+----Select * from #temp2 where FirstActivityDate is NULL
+--drop table if exists customer_master_ALL
+--Select * into customer_master_ALL from #temp2 where FirstActivityDate is not NULL -- 518901
+
